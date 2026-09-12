@@ -1,0 +1,23 @@
+from pathlib import Path
+import sys
+import ctypes
+import os
+from pathlib import Path
+
+# 1-> crear archivo zip 
+# 2-> descomprimir archivo en carpeta 
+# 3-> correr archivo 
+
+
+
+#uv run python -m zipfile -c 21548075-5.zip 21548075-5          
+#uv run python -m zipfile -e 21548075-5.zip .
+#uv run python -m 21548075-5 
+
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from __init__ import*
+
+if __name__ == "__main__":
+    tarea()
