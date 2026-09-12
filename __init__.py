@@ -7,7 +7,6 @@ import numpy as np
 import pyglet
 from OpenGL import GL
 from grafica.utils import load_pipeline
-
 dt = .001
 
 
@@ -96,45 +95,43 @@ def parametrizar(state, rmax, rmin):
     point  = 2* (state - rmin)/(rmax-rmin ) - 1
     return point
 
-def det_VBO(list_points, point_vew):
+def det_VBO(list_points, point_view):
     """
-    Determona el vertex Buffer object, donde segun tipo de perfil de visualizacion, el sistema elije la lista a graficar. 
+    Convierte los puntos 3D normalizados en un arreglo 2D
+    compatible con el VBO.
     """
-    x = list_points[0]
-    y = list_points[1]
-    z = list_points[2]
-    l = np.len(z)
 
+    x = list_points[:, 0]
+    y = list_points[:, 1]
+    z = list_points[:, 2]
 
-    if (point_vew == "xy"): 
-        VBO= np.zeros(2*l)
-        for i in range(l):
-            VBO[2*i] = x[i]
-            VBO[2*i +1] = y[i]
-        return VBO
+    l = len(list_points)
 
+    VBO = np.zeros(2*l, dtype=np.float32)
 
-    elif( point_vew == "xz"):
-        VBO= np.zeros(2*l)
-        for i in range(l):
-            VBO[2*i] = x[i]
-            VBO[2*i +1] = z[i]
-        return VBO
+    if point_view == "xy":
+        VBO[0::2] = x
+        VBO[1::2] = y
+
+    elif point_view == "xz":
+        VBO[0::2] = x
+        VBO[1::2] = z
+
+    elif point_view == "yz":
+        VBO[0::2] = y
+        VBO[1::2] = z
+
+    else:
+        raise ValueError(f"Proyección desconocida: {point_view}")
+
+    return VBO
     
-    elif(point_vew =="yz"): 
-        VBO= np.zeros(2*l)
-        for i in range(l):
-            VBO[2*i] = y[i]
-            VBO[2*i +1] = z[i]
-        return VBO
-
-    
-def construir_VAO(vbo):
-    """
-    A partir de VBO, ensamblamos el vertex array program
-    """
-    l = 3*np.len(vbo[0, :])
-    VAO = np.zeros(l)
+# def construir_VAO(vbo):
+#     """
+#     A partir de VBO, ensamblamos el vertex array program
+#     """
+#     l = 3*np.len(vbo[0, :])
+#     VAO = np.zeros(l)
 
 
 def oscilador(theta, j= None , delta = .1):
@@ -155,15 +152,17 @@ def oscilador(theta, j= None , delta = .1):
         return "yz", j
         
 #medimos valores máximos
-r = calentura(np.array(1., .1, .1), dt)
-RANGOS = {
-    "xz": (-25.0, 25.0, 0.0, 50.0),
-    "xy": (-25.0, 25.0, -30.0, 30.0),
-    "yz": (-30.0, 30.0, 0.0, 50.0),
-}
+
+rmax, rmin = calentura(np.array((1., .1, .1)), dt)
+
+# RANGOS = {
+#     "xz": (-25.0, 25.0, 0.0, 50.0),
+#     "xy": (-25.0, 25.0, -30.0, 30.0),
+#     "yz": (-30.0, 30.0, 0.0, 50.0),
+# }
 #estamos listos para función principal 
 
-def Rossler(width, height, particles, steps, dt, plano, range, point_vew="xy"):
+def Rossler(width, height, particles, steps, dt, rmax, rmin , point_view="xy", state = np.array((1, 0.1, 0.1))):
     """
     Atractor de 
     función principal
@@ -171,12 +170,13 @@ def Rossler(width, height, particles, steps, dt, plano, range, point_vew="xy"):
     VARIABLES   
     range: rango de valores max y min del caso. arreglo de 6, rmax_vec, rmin_vec
     """
-    def integrate_and_collect(state, range, num_steps=200, dt=.001):
+    paused = False
+    def integrate_and_collect(state, rmax, rmin , num_steps=200, dt=.001):
         """
         Evolución dinámica del problema, retorna puntos normalizados
         """
         s = (num_steps, 3)
-        list_states = np.zeros(s, dtype= np.float32)
+        list_states = np.zeros(s, dtype= np.float64)
         i = 1
         list_states[0] = state
 
@@ -186,14 +186,18 @@ def Rossler(width, height, particles, steps, dt, plano, range, point_vew="xy"):
             state = new_state
             i+=1
 
-        list_point = parametrizar(list_states, range[:3], range[3:])
+        list_point = parametrizar(list_states, rmax, rmin)
+        
 
-        return list_point
+
+        return list_point.astype(np.float32), state
 
     #definimos ventana 
-    win = pyglet.window.Window(width, height, ñtcaption=f"Rossler ({plano})")
+    win = pyglet.window.Window(width, height, caption=f"Rossler ({point_view})")
 
+    exposure = 1.
     # --- Framebuffer de acumulación con textura float ---
+
     accum_tex = GL.glGenTextures(1)
     GL.glBindTexture(GL.GL_TEXTURE_2D, accum_tex)
     GL.glTexImage2D(
@@ -212,6 +216,12 @@ def Rossler(width, height, particles, steps, dt, plano, range, point_vew="xy"):
         GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0,
         GL.GL_TEXTURE_2D, accum_tex, 0
     )
+
+    status = GL.glCheckFramebufferStatus(GL.GL_FRAMEBUFFER)
+
+    if status != GL.GL_FRAMEBUFFER_COMPLETE:
+        raise RuntimeError("Framebuffer incompleto")
+
     GL.glClearColor(0.0, 0.0, 0.0, 0.0)
     GL.glClear(GL.GL_COLOR_BUFFER_BIT)
     GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, 0)
@@ -240,33 +250,19 @@ def Rossler(width, height, particles, steps, dt, plano, range, point_vew="xy"):
         Path(os.path.dirname(__file__)) / "visualization.glsl",
     )
 
-    points = integrate_and_collect(np.array((1., .1, .1)), r)
-    points_2d = det_VBO(points, point_vew)
+    gpu_quad = pipeline_vis.vertex_list_indexed(4, GL.GL_TRIANGLES, indices)
+    gpu_quad.position[:] = vertices
+    gpu_quad.uv[:] = uv
 
-    GL.glBindBuffer(GL.GL_ARRAY_BUFFER, vbo_points)
+    paused = False
+    exposure = 0.02
 
-    GL.glBufferData(
-        GL.GL_ARRAY_BUFFER,
-        points_2d.nbytes,
-        points_2d,
-        GL.GL_STREAM_DRAW
-    )
-
-
-    GL.glDrawArrays(
-        GL.GL_POINTS,
-        0,
-        len(points_2d) // 2
-    )
-  
-
-    GL.glBindVertexArray(0)
     def tick(frame_time):
         if paused:
             return
 
-        points = integrate_and_collect(
-            state,
+        points, state = integrate_and_collect(
+            state, rmax, rmin,
             num_steps=steps,
             dt=dt
         )
@@ -285,6 +281,8 @@ def Rossler(width, height, particles, steps, dt, plano, range, point_vew="xy"):
 
         pipeline_points.use()
 
+        #preferible primero vao, luevo vbo
+        GL.glBindVertexArray(vao_points)
         GL.glBindBuffer(GL.GL_ARRAY_BUFFER, vbo_points)
 
         GL.glBufferData(
@@ -294,7 +292,7 @@ def Rossler(width, height, particles, steps, dt, plano, range, point_vew="xy"):
             GL.GL_STREAM_DRAW
         )
 
-        GL.glBindVertexArray(vao_points)
+
 
         GL.glDrawArrays(
             GL.GL_POINTS,
@@ -334,13 +332,13 @@ def Rossler(width, height, particles, steps, dt, plano, range, point_vew="xy"):
 
         gpu_quad.draw(GL.GL_TRIANGLES)
 
-    print(f"Atractor de Lorenz, proyección {plano}")
-    print("Controles:")
-    print("  ESPACIO: pausar/reanudar")
-    print("  R: reiniciar")
-    print("  +/-: duplicar o dividir el paso de integración dt")
-    print("  ARRIBA/ABAJO: ajustar exposición")
-    print(f"  Trayectorias: {particles}, pasos por frame: {steps}, dt: {dt}")
+    # print(f"Atractor de Rossler, proyección {point_view}")
+    # print("Controles:")
+    # print("  ESPACIO: pausar/reanudar")
+    # print("  R: reiniciar")
+    # print("  +/-: duplicar o dividir el paso de integración dt")
+    # print("  ARRIBA/ABAJO: ajustar exposición")
+    # print(f"  Trayectorias: {particles}, pasos por frame: {steps}, dt: {dt}")
 
     pyglet.clock.schedule_interval(tick, 1 / 60.0)
     pyglet.app.run()
